@@ -1,0 +1,2 @@
+# SWELL-script
+Steal brainrot 
